@@ -7,6 +7,12 @@ resolution-markers = [
     "sys_platform != 'emscripten' and sys_platform != 'win32'",
 ]
 
+[manifest]
+members = [
+    "ml-agent",
+    "ml-agent-edc7f7bd",
+]
+
 [[package]]
 name = "aiohappyeyeballs"
 version = "2.6.2"
@@ -795,6 +801,25 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.13.4" },
     { name = "python-dotenv", specifier = ">=1.2.2" },
     { name = "rich", specifier = ">=15.0.0" },
+    { name = "scikit-learn", specifier = ">=1.9.0" },
+    { name = "xgboost", specifier = ">=3.2.0" },
+]
+
+[[package]]
+name = "ml-agent-edc7f7bd"
+version = "0.1.0"
+source = { virtual = ".temp/ml_agent_edc7f7bd" }
+dependencies = [
+    { name = "joblib" },
+    { name = "pandas" },
+    { name = "scikit-learn" },
+    { name = "xgboost" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "joblib", specifier = ">=1.5.3" },
+    { name = "pandas", specifier = ">=3.0.3" },
     { name = "scikit-learn", specifier = ">=1.9.0" },
     { name = "xgboost", specifier = ">=3.2.0" },
 ]

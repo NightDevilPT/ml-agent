@@ -1,11 +1,6 @@
 """
 Analyze Algorithm Node — Phase 3A: Model Recommendation Scoring Engine
-
-Uses an LLM with structured outputs to profile a data sample matrix and determine:
-  1. The explicit mathematical problem space (Classification vs. Regression vs. Clustering)
-  2. Optimal model choices from available production framework modules (scikit-learn, xgboost)
-  3. Weighted ranking scores (1-100) where heavy weight signifies the absolute best model.
-  4. Node-level token usage tracking mapped inside the state as {"analyze_algorithm": token_value}.
+Reads preprocessed numerical data assets to recommend optimal model selection.
 """
 
 import json
@@ -13,110 +8,85 @@ from pathlib import Path
 from typing import Any, Dict, List
 from pydantic import BaseModel, Field
 
-# Local module imports
 from utils.logger import get_logger
 from utils.llm import get_llm, extract_token_usage
-from utils.grab_data import get_memory_safe_sample  # 👈 IMPORTED HERE
+from utils.grab_data import get_memory_safe_sample  
 
 log = get_logger("analyze_algorithm")
 
-
-# ================================================================
-# Pydantic Models for Structured LLM Output
-# ================================================================
-
 class SingleAlgorithmRecommendation(BaseModel):
-    algorithm_name: str = Field(
-        description="Exact class name, e.g., RandomForestClassifier, XGBRegressor, LogisticRegression, KMeans"
-    )
-    package: str = Field(
-        description="Framework source package constraint matching your environment: scikit-learn or xgboost"
-    )
-    ml_task: str = Field(
-        description="Evaluated workflow task type: Binary Classification / Multi-Class Classification / Regression / Clustering"
-    )
-    selection_score: int = Field(
-        description="A weighted selection score from 1 to 100 assessing suitability. Heavy weight (e.g. 95) is better than a lower weight (e.g. 60)."
-    )
-    is_primary_recommendation: bool = Field(
-        description="Set to true ONLY for the single best model containing the heaviest selection_score."
-    )
-    justification: str = Field(
-        description="Clear, mathematically grounded reasoning explaining why this model matches the sample columns and why it received its specific weight score."
-    )
-    suggested_base_parameters: Dict[str, Any] = Field(
-        default_factory=dict,
-        description="A key-value map configuring recommended baseline training variables for this estimator."
-    )
+    algorithm_name: str = Field(description="Exact class name matching standard modules.")
+    package: str = Field(description="Source package constraint: scikit-learn or xgboost")
+    ml_task: str = Field(description="Evaluated workflow task type")
+    selection_score: int = Field(description="Weighted suitability ranking score from 1 to 100")
+    is_primary_recommendation: bool = Field(description="True ONLY for the single best model containing the heaviest score")
+    justification: str = Field(description="Mathematically grounded reasoning statements")
+    suggested_base_parameters: Dict[str, Any] = Field(default_factory=dict, description="Baseline execution configurations")
 
 class AlgorithmSelectorOutput(BaseModel):
-    algorithm_recommendations: List[SingleAlgorithmRecommendation] = Field(
-        default_factory=list,
-        description="An array containing recommended algorithmic architectures for this specific dataset profile, sorted from heaviest weight to lowest."
-    )
-
-
-# ================================================================
-# Main Node Entrypoint
-# ================================================================
+    algorithm_recommendations: List[SingleAlgorithmRecommendation] = Field(default_factory=list)
 
 def analyze_algorithm_run(state: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Main LangGraph Node function.
-    Reads data assets directly out of the temporary cloned workspace path to protect source records.
-    """
     node_name = "analyze_algorithm"
     log.start("Analyze Algorithm Node — Phase 3A: Model Recommendation Scoring")
     
-    all_files = state.get("all_files", [])
     global_token_count = state.get("token_count", 0)
     historical_node_tokens = state.get("node_tokens", {})
     
-    if not all_files:
-        log.error("No valid dataset files found in state tracking context.")
+    # 🌟 DYNAMIC PATHING: Build directory straight from clone_workspace
+    clone_workspace = state.get("clone_workspace", "")
+    if not clone_workspace:
+        log.error("Missing clone_workspace environment path context.")
         return {
             "execution_success": False,
-            "error_message": "Missing file trajectories. Run dataset_validator first."
+            "error_message": "Workspace framework directory context is missing from state."
+        }
+        
+    processed_dir = Path(clone_workspace) / "processed_datasets"
+    
+    # Gather all processed CSV/Excel files directly from the directory
+    processed_files = []
+    if processed_dir.exists():
+        processed_files = [str(f.absolute()) for f in processed_dir.iterdir() if f.is_file() and f.suffix.lower() in ['.csv', '.xlsx', '.xls']]
+
+    if not processed_files:
+        log.error("No valid files discovered inside processed target directory: %s", str(processed_dir))
+        return {
+            "execution_success": False,
+            "error_message": f"Preprocessed numeric datasets missing from folder: {processed_dir.name}"
         }
     
-    primary_file_str = all_files[0]
+    # Target the primary preprocessed file matrix
+    primary_file_str = processed_files[0]
+    log.info("Analyzing clean numerical file profile at disk target: %s", Path(primary_file_str).name)
     
-    # ----------------------------------------------------------------
-    # Step 1: Secure Data Samples using grab_data Utility Module
-    # ----------------------------------------------------------------
     try:
-        # 👈 CLEAN EXTERNALIZED SAMPLING
         columns_list, data_sample_string = get_memory_safe_sample(primary_file_str, sample_size=10)
-        
     except Exception as read_err:
-        log.error("Data profiling failed to load data records safely from temporary files: %s", str(read_err))
+        log.error("Data profiling failed to load preprocessed records safely: %s", str(read_err))
         return {
             "execution_success": False,
-            "error_message": f"Failed reading temporary dataset matrix sample: {str(read_err)}"
+            "error_message": f"Failed reading preprocessed dataset matrix sample: {str(read_err)}"
         }
 
-    # ----------------------------------------------------------------
-    # Step 2: Leverage Native Structured Tool Outputs with Weighting Rules
-    # ----------------------------------------------------------------
     log.section("Invoking structured model recommendation analyzer")
 
     prompt = f"""Role: Data Science Architect.
-Task: Analyze the following data snippet (features, column structures, and sample values) to recommend optimal machine learning modeling tools.
+Task: Analyze the following preprocessed, numeric data snippet to recommend optimal machine learning modeling tools.
 
-Available Production Packages to Leverage:
-- scikit-learn (Ideal for linear models, trees, ensembles, clustering, and processing)
-- xgboost (Ideal for advanced gradient boosted trees on complex tabular datasets)
+Available Framework Options:
+- scikit-learn
+- xgboost
 
-Columns Present: {columns_list}
-
-Data Snippet (10 Random Records with Headers):
+Columns Present (Preprocessed to Numeric): {columns_list}
+Data Snippet Sample:
 {data_sample_string}
 
 Task Instructions:
 1. Evaluate whether this dataset suggests a Classification task, Regression task, or Clustering problem.
-2. Select 2 or 3 specific algorithms from the available packages that fit this data best.
-3. Assign an explicit numerical 'selection_score' (1-100) to each algorithm as its weight. 
-4. CRITICAL RULE: The heavy weight (highest score) must represent the single absolute best algorithm choice for this data pattern. Mark that specific winning model as 'is_primary_recommendation': true."""
+2. Select 2 or 3 specific algorithms from the available packages that fit best.
+3. Assign an explicit numerical 'selection_score' (1-100) to each.
+4. Mark the winning model as 'is_primary_recommendation': true."""
 
     llm = get_llm(temperature=0.0)
     structured_llm = llm.with_structured_output(AlgorithmSelectorOutput, include_raw=True)

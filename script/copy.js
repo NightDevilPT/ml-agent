@@ -3,7 +3,7 @@ const path = require('path');
 const readline = require('readline');
 
 // Files and folders to ignore so the script doesn't crash or create massive files
-const IGNORE_LIST = ['node_modules', '.git', 'package-lock.json', '.DS_Store', 'copy.txt', '__pycache__', '.venv', '.env'];
+const IGNORE_LIST = ['node_modules', '.git', 'package-lock.json', '.DS_Store', 'copy.txt', '__pycache__', '.venv', '.env', '__pycache__', 'data', 'datasets'];
 const IGNORE_EXTENSIONS = ['.pyc', '.png', '.jpg', '.jpeg', '.gif', '.ico', '.woff', '.woff2', '.ttf', '.eot', '.zip', '.tar.gz', '.exe', '.dll', '.so', '.dylib', '.db', '.sqlite'];
 
 const rl = readline.createInterface({

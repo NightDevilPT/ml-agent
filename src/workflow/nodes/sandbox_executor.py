@@ -1,75 +1,74 @@
-"""Sandbox Executor Node — Phase 7: Isolated Code Execution & Validation."""
+"""
+Sandbox Executor Node — Phase 6: Isolated Environment Compilation Run
+Runs the written train.py code inside a sandboxed container.
+"""
 
 from pathlib import Path
 from typing import Any, Dict
-import docker
 from utils.logger import get_logger
+from utils.sandbox import MlSandbox
 
 log = get_logger("sandbox_executor")
 
 def sandbox_executor_run(state: Dict[str, Any]) -> Dict[str, Any]:
-    """Mounts the cloned workspace into the prepared Docker container and executes
-    the training loop script via uv while trapping standard error logs.
-    """
     node_name = "sandbox_executor"
-    log.start("Sandbox Executor Node — Phase 7: Launching Sandboxed Execution")
     
-    clone_workspace_str = state.get("clone_workspace", "")
-    image_tag = state.get("sandbox_image_tag", "")
-    historical_node_tokens = state.get("node_tokens", {})
-    
-    if not clone_workspace_str or not image_tag:
-        log.error("Missing workspace path trajectories or built Docker image references.")
-        return {"execution_success": False, "error_message": "Missing prepper dependencies."}
-        
-    workspace_path = Path(clone_workspace_str)
-    
-    try:
-        client = docker.from_env()
-        log.info("Spawning container from target image layer: %s", image_tag)
-        
-        # Run the training script via 'uv run train.py' in the container.
-        # Live-mount the host workspace directory directly to /app inside Docker
-        container_output = client.containers.run(
-            image=image_tag,
-            command="uv run train.py",
-            volumes={
-                str(workspace_path.absolute()): {
-                    'bind': '/app',
-                    'mode': 'rw'
-                }
-            },
-            working_dir="/app",
-            stderr=True,
-            stdout=True,
-            remove=True  # Automatically clean up container tracking spaces on completion
-        )
-        
-        log.info("Container execution output received successfully.")
-        decoded_logs = container_output.decode("utf-8")
-        print("\n--- SANDBOX CONTAINER CONSOLE OUTPUT ---\n", decoded_logs, "\n----------------------------------------\n")
-        
-    except docker.errors.ContainerError as exc:
-        # Script execution encountered a breakdown (Non-zero exit code caught!)
-        error_logs = exc.stderr.decode("utf-8")
-        log.warn("Sandbox execution breakdown detected! Script failed to terminate cleanly.")
-        print("\n--- CRASH LOG IDENTIFIED ---\n", error_logs, "\n----------------------------\n")
-        
-        updated_node_tokens = {**historical_node_tokens, node_name: 0}
+    # 🌟 HALTING GUARDRAIL: Stop execution immediately if upstream architect failed
+    if state.get("execution_success") is False:
         return {
             "execution_success": False,
-            "error_message": error_logs,  # Capture raw error logs to pass directly back to ml_architect
-            "node_tokens": updated_node_tokens
+            "error_message": state.get("error_message", "Halted downstream executor: Upstream script architect collapsed.")
         }
-    except Exception as general_err:
-        log.error("Host environment container bridge broken: %s", str(general_err))
-        return {"execution_success": False, "error_message": str(general_err)}
         
-    log.end("Sandboxed model pipeline completed successfully without any execution faults!")
-    updated_node_tokens = {**historical_node_tokens, node_name: 0}
+    log.start("Sandbox Executor Node — Phase 6: Executing Code Inside Container Sandbox")
     
+    clone_workspace = state.get("clone_workspace", "")
+    processed_dir = Path(clone_workspace) / "processed_datasets"
+    processed_files = [str(f.absolute()) for f in processed_dir.iterdir() if f.is_file() and f.suffix.lower() == '.csv'] if processed_dir.exists() else []
+    
+    target_script = Path(clone_workspace) / "train.py"
+    if not target_script.exists():
+        log.error("Target training script train.py missing from workspace root.")
+        return {"execution_success": False, "error_message": "train.py code missing from workspace root."}
+
+    with open(target_script, "r", encoding="utf-8") as f:
+        code_string = f.read()
+
+    combined_packages = ["pandas", "joblib", "scikit-learn", "xgboost"]
+    
+    with MlSandbox(memory_limit="8g", timeout=400) as sandbox:
+        preparation_success = sandbox.prepare(
+            dataset_files=processed_files,
+            code_string=code_string,
+            packages=combined_packages
+        )
+        
+        if not preparation_success:
+            return {"execution_success": False, "error_message": "Failed copying workspace assets to container mounts."}
+            
+        execution_result = sandbox.execute()
+        
+        if not execution_result.success:
+            log.warn("Container training compilation crash caught! Redirecting back into self-healing loops...")
+            return {
+                "latest_sandbox_logs": execution_result.logs + f"\n{execution_result.error_message}",
+                "execution_success": True  # Keep graph alive for routing transitions
+            }
+            
+        extracted_model_path = sandbox.extract_model()
+        if extracted_model_path:
+            import shutil
+            shutil.copy2(extracted_model_path, Path(clone_workspace) / "model.joblib")
+            log.info("Model binary extracted to workspace safely.")
+        else:
+            return {
+                "latest_sandbox_logs": "Execution returned exit code 0, but failed to output a model.joblib artifact file matrix.",
+                "execution_success": True
+            }
+
+    log.end("Sandbox run successfully validated. Moving to behavioral assertion verification pipelines.")
     return {
+        "latest_sandbox_logs": "",
         "execution_success": True,
-        "error_message": None,
-        "node_tokens": updated_node_tokens
+        "error_message": None
     }
