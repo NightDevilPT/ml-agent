@@ -15,7 +15,6 @@ def main():
     
     # Determine workspace root to structure the JSON output path cleanly
     workspace_root = Path(__file__).resolve().parent.parent
-    output_json_path = workspace_root / "state_record.json"
     
     # --- HITL Dataset Selection Gate ---
     log.section("Human-In-The-Loop Data Selection")
@@ -44,16 +43,23 @@ def main():
     chosen_dataset_path = Path(custom_path_str)
     log.info("Target data pathway established via HITL input: %s", str(chosen_dataset_path))
 
-    # 1. Build initial centralized state payload 
+    # 1. Build initial centralized state payload mapping completely to strict MLState keys
     initial_state = {
         "target_path": str(chosen_dataset_path),
-        "clone_workspace": "",  # This will be set by the workflow
-        "dataset_metadata": None,
+        "clone_workspace": "",
         "all_files": [],
-        "file_count": 0,
-        "execution_success": True,
-        "error_message": None,
-        "token_count": 0
+        "train_path": "",
+        "test_path": "",
+        "target_recommendations": [],
+        "chosen_target": None,
+        "problem_type": None,
+        "algorithm_recommendations": [],
+        "chosen_algorithm": None,
+        "is_data_valid": False,
+        "consolidation_feedback": None,
+        "retry_counters": {"ingestion_loop": 0},
+        "token_count": 0,
+        "node_tokens": {}
     }
     
     log.info("System Stateful Context successfully primed. Invoking LangGraph runtime.")
@@ -65,19 +71,21 @@ def main():
         
         # 3. Process structural output execution states
         log.section("Workflow Lifecycle Evaluation")
-        if final_state.get("execution_success"):
+        if final_state.get("clone_workspace"):
             log.info("Pipeline execution completed successfully.")
-            log.info("Discovered file count metrics: %d", final_state.get("file_count", 0))
-            log.info("Identified file keys: %s", list(final_state.get("dataset_metadata", {}).keys()))
+            log.info("Workspace Directory: %s", final_state.get("clone_workspace"))
+            log.info("Discovered Files: %s", final_state.get("all_files"))
         else:
-            log.error("Pipeline terminal fault caught: %s", final_state.get("error_message"))
+            log.error("Pipeline terminal fault caught: Ingestion workspace setup failed.")
+            if final_state.get("consolidation_feedback"):
+                log.error("Trace context: %s", final_state.get("consolidation_feedback"))
             
     except Exception as e:
         log.error("Fatal unhandled runtime exception encountered outside sandbox: %s", str(e))
         # Fallback payload structure to log if an absolute framework crash occurs
         final_state = initial_state.copy()
-        final_state["execution_success"] = False
-        final_state["error_message"] = f"Fatal system error: {str(e)}"
+        final_state["is_data_valid"] = False
+        final_state["consolidation_feedback"] = f"Fatal system error: {str(e)}"
 
     # --- JSON State Persistence Layer ---
     if final_state:

@@ -8,42 +8,39 @@ class MLState(TypedDict):
     # ----------------------------------------------------------------
     # Host Environment Inputs & Cloned Workspace Directories
     # ----------------------------------------------------------------
-    target_path: str                 # Original directory folder provided by host prompt
-    clone_workspace: str             # Isolated workspace path, e.g., .../.temp/ml_agent_6279f94e
+    target_path: str                 # Original directory folder provided by host prompt [cite: 118]
+    clone_workspace: str             # Isolated workspace path, e.g., .../.temp/ml_agent_6279f94e [cite: 119]
+    all_files: List[str]             # Absolute paths of raw files copied into the datasets/ folder [cite: 4]
+    
+    # Clean split dataset file paths generated inside processed-datasets/
+    train_path: str                  # Path to processed-datasets/train-dataset.{extension}
+    test_path: str                   # Path to processed-datasets/test-dataset.{extension}
     
     # ----------------------------------------------------------------
-    # Dataset Files & Structural Schema Metadata
+    # Target Suggestion Metadata (Step 1 of Selection Phase)
     # ----------------------------------------------------------------
-    dataset_metadata: Optional[Dict[str, Any]]
-    all_files: List[str]             # Original copied source files inside temporary folder
-    file_count: int                  # Count verification tracking field
-    processed_files: List[str]       # Index 0: processed_dataset.csv (70%), Index 1: test_dataset.csv (30%)
-    
-    # 🌟 NEW ELEMENT ADDED HERE:
-    target_variable: Optional[str]   # Explicit targeted optimization goal name (e.g., 'Close')
+    # Array of objects: [{"target_name": "...", "description": "..."}]
+    target_recommendations: List[Dict[str, str]] 
+    chosen_target: Optional[str]     # Selected target column name confirmed by user (y)
     
     # ----------------------------------------------------------------
-    # Algorithmic Recommendation Architectures & Strategies
+    # Algorithm Selection Metadata (Step 2 of Selection Phase)
     # ----------------------------------------------------------------
-    algorithm_recommendations: Optional[List[Dict[str, Any]]]
-    selected_algorithm_config: Optional[Dict[str, Any]]       # Config locked down by user via HITL
+    problem_type: Optional[str]      # Inferred task: "Classification" or "Regression"
+    
+    # Array of objects: [{"algorithm_name": "...", "weight": 0.95, "reasoning": "..."}]
+    algorithm_recommendations: List[Dict[str, Any]] 
+    chosen_algorithm: Optional[str]  # Selected model architecture confirmed by user (e.g., "XGBoost Classifier")
     
     # ----------------------------------------------------------------
-    # Testing Scenarios & Behavioral QA Metrics
+    # Local Self-Healing Loop Feedbacks
     # ----------------------------------------------------------------
-    test_scenarios: Optional[List[Dict[str, Any]]]             # Generated adversarial validation blocks
-    
-    # ----------------------------------------------------------------
-    # Execution Tracking & Self-Healing Telemetry Loops
-    # ----------------------------------------------------------------
-    execution_success: bool          # Circuit-breaker flag tracking step completions
-    error_message: Optional[str]     # Tracks string tracebacks when an execution falls over
-    iteration_count: int             # Runs safety threshold loops (Circuit ceiling caps at 1)
-    latest_sandbox_logs: str         # Stdout dump capture from container failures
-    test_failure_report: str         # Grading issues returned back to script composer node
+    is_data_valid: bool              # Validation flag populated by the AI Validator Node (True/False)
+    consolidation_feedback: Optional[str] # Holds traceback logs or errors if cleaner/combiner nodes fail
+    retry_counters: Dict[str, int]   # Keeps track of local loop iterations, e.g., {"ingestion_loop": 0}
     
     # ----------------------------------------------------------------
     # Token Tracking Operations
     # ----------------------------------------------------------------
-    token_count: int                 # Global continuous cumulative token burn tracker
-    node_tokens: Dict[str, int]      # Local dictionary mapping node keys to token values
+    token_count: int                 # Global continuous cumulative token burn tracker [cite: 5]
+    node_tokens: Dict[str, int]      # Local dictionary mapping node keys to token values [cite: 119]
