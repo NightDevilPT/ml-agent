@@ -1,9 +1,3 @@
-Here is your complete, fully finalized **Project Overview Document**.
-
-It now explicitly details the manual execution tracking changes we implemented—specifically highlighting how you or a developer can run `main.py` directly on the host or inside a Docker container to instantly test the pre-compiled `model.joblib` artifact against the 30% holdout split.
-
----
-
 # Project Overview: Self-Healing Agentic AutoML System
 
 ## 1. Executive Summary

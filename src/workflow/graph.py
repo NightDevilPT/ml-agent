@@ -10,12 +10,6 @@ from workflow.state import MLState
 from workflow.nodes.clone_dataset import clone_dataset_run
 from workflow.nodes.dataset_validator import dataset_validator_run
 from workflow.nodes.data_preprocessor import data_preprocessor_run
-from workflow.nodes.analyze_algorithm import analyze_algorithm_run
-from workflow.nodes.select_algorithm import select_algorithm_run
-from workflow.nodes.ml_architect import ml_architect_run
-from workflow.nodes.sandbox_executor import sandbox_executor_run
-from workflow.nodes.scenario_test_runner import scenario_test_runner_run
-from workflow.nodes.generate_eval_script import generate_eval_script_run
 
 # ================================================================
 # Routing Condition Functions
@@ -51,12 +45,6 @@ def build_graph() -> StateGraph:
     workflow.add_node("clone_dataset", clone_dataset_run)
     workflow.add_node("dataset_validator", dataset_validator_run)
     workflow.add_node("data_preprocessor", data_preprocessor_run)
-    workflow.add_node("analyze_algorithm", analyze_algorithm_run)
-    workflow.add_node("select_algorithm", select_algorithm_run)
-    workflow.add_node("ml_architect", ml_architect_run)
-    workflow.add_node("sandbox_executor", sandbox_executor_run)
-    workflow.add_node("scenario_test_runner", scenario_test_runner_run)
-    workflow.add_node("generate_eval_script", generate_eval_script_run)
     
     # 2. Enforce initialization target
     workflow.set_entry_point("clone_dataset")
@@ -64,10 +52,7 @@ def build_graph() -> StateGraph:
     # 3. Direct solid immutable structural linkages
     workflow.add_edge("clone_dataset", "dataset_validator")
     workflow.add_edge("dataset_validator", "data_preprocessor")
-    workflow.add_edge("data_preprocessor", "analyze_algorithm")
-    workflow.add_edge("analyze_algorithm", "select_algorithm")
-    workflow.add_edge("select_algorithm", "ml_architect")
-    workflow.add_edge("ml_architect", "sandbox_executor")
+    workflow.add_edge("data_preprocessor", END)
     
     # 4. Sandbox routing evaluation path with structural crash guardrails
     workflow.add_conditional_edges(
