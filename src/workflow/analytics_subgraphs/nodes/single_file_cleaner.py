@@ -87,10 +87,13 @@ def execute_column_recipe_engine(df: pd.DataFrame, recipe: ColumnRecipe) -> Opti
 
     # Strategy C: Extract pure numerical fields out from dirty string data
     if recipe.logical_type == "numeric":
-        series = series.astype(str).str.strip()
+        # 🌟 ENHANCEMENT: Aggressively eliminate inline punctuation, spacing, and commas up front
+        # This completely resolves the Indian comma numbering format variations (e.g., 4,25,000 -> 425000)
+        series = series.astype(str).str.replace(",", "", regex=False).str.strip()
 
         for symbol in sorted(recipe.characters_to_strip, key=len, reverse=True):
-            series = series.str.replace(symbol, "", regex=False)
+            if symbol != ",":  # Handled natively above, but skip gracefully if present in list
+                series = series.str.replace(symbol, "", regex=False)
 
         series = series.str.strip()
 
@@ -255,19 +258,16 @@ def single_file_cleaner_run(state: MLState) -> Dict[str, Any]:
             log.info("Encoding classification label metrics on target feature: '%s'", target_col)
             df_final[target_col] = pd.factorize(df_final[target_col])[0]
 
-        # 🌟 Step 4: ADVANCED DATETIME FEATURE ENGINEERING LAYER
+        # Step 4: Advanced Datetime Feature Engineering Layer
         for col in datetime_cols:
             if col in df_final.columns:
                 log.info("Feature Engineering: Decomposing datetime column '%s' into numeric elements.", col)
-                # Parse to true datetime series explicitly
                 parsed_dates = pd.to_datetime(df_final[col], errors="coerce")
                 
-                # Extract numeric sub-features safely, filling any missing records with local medians
                 df_final[f"{col}_year"] = parsed_dates.dt.year.fillna(parsed_dates.dt.year.median() if not parsed_dates.dt.year.isna().all() else 2026).astype("float64")
                 df_final[f"{col}_month"] = parsed_dates.dt.month.fillna(parsed_dates.dt.month.median() if not parsed_dates.dt.month.isna().all() else 1).astype("float64")
                 df_final[f"{col}_day"] = parsed_dates.dt.day.fillna(parsed_dates.dt.day.median() if not parsed_dates.dt.day.isna().all() else 1).astype("float64")
                 
-                # Drop the original unreadable string date column so models don't crash
                 df_final.drop(columns=[col], inplace=True)
                 log.info("--> Dropped raw unreadable column '%s' and generated numerical sub-features.", col)
 

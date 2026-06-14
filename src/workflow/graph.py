@@ -6,8 +6,10 @@ Includes structural circuit breakers to prevent infinite self-healing runtime lo
 from langgraph.graph import StateGraph, END
 from workflow.state import MLState
 
-# 🌟 Updated import path to use standard python underscores matching your renamed folder
+# 1. Import your established Data Analytics Subgraph
 from workflow.analytics_subgraphs.data_analytics_subgraph import compiled_analytics_subgraph
+
+# 2. Import your newly updated single-node ML Architect Subgraph
 from workflow.ml_subgraph.ml_architect_subgraph import compiled_ml_architect_subgraph
 
 
@@ -26,9 +28,10 @@ def build_graph() -> StateGraph:
     workflow.set_entry_point("data_analytics_subgraph_phase")
     
     # 3. Establish the Phase Handoff Sequence Connection
+    # Handoff control cleanly from the completed Data Analytics phase into the ML Architect phase
     workflow.add_edge("data_analytics_subgraph_phase", "ml_architect_subgraph_phase")
     
-    # 4. Terminal Phase Exit
+    # 4. Terminate pipeline gracefully once the ML Architect Subgraph completes its single node
     workflow.add_edge("ml_architect_subgraph_phase", END)
     
     return workflow.compile()
