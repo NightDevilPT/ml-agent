@@ -6,24 +6,33 @@ Includes structural circuit breakers to prevent infinite self-healing runtime lo
 from langgraph.graph import StateGraph, END
 from workflow.state import MLState
 
-# Import the compiled data sub-graph macro block with updated naming convention
-from workflow.subgraphs.data_analytics_subgraph import compiled_analytics_subgraph
+# 🌟 Updated import path to use standard python underscores matching your renamed folder
+from workflow.analytics_subgraphs.data_analytics_subgraph import compiled_analytics_subgraph
+from workflow.ml_subgraph.ml_architect_subgraph import compiled_ml_architect_subgraph
+
 
 # ================================================================
 # Graph Builder Configuration Topology
 # ================================================================
 def build_graph() -> StateGraph:
+    """Assembles and compiles the top-level parent ML pipeline orchestration graph."""
     workflow = StateGraph(MLState)
     
-    # Register the compiled analytics subgraph macro-node block
+    # 1. Register the compiled subgraph macro-nodes
     workflow.add_node("data_analytics_subgraph_phase", compiled_analytics_subgraph)
+    workflow.add_node("ml_architect_subgraph_phase", compiled_ml_architect_subgraph)
     
-    # Main Workflow Entry Point
+    # 2. Set the Main Workflow Entry Point
     workflow.set_entry_point("data_analytics_subgraph_phase")
     
-    # Set the subgraph to transition directly to END upon completion
-    workflow.add_edge("data_analytics_subgraph_phase", END)
+    # 3. Establish the Phase Handoff Sequence Connection
+    workflow.add_edge("data_analytics_subgraph_phase", "ml_architect_subgraph_phase")
+    
+    # 4. Terminal Phase Exit
+    workflow.add_edge("ml_architect_subgraph_phase", END)
     
     return workflow.compile()
 
+
+# Compile the global application state machine tracking engine
 app = build_graph()

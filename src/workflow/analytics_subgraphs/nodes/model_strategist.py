@@ -127,19 +127,19 @@ def model_strategist_run(state: MLState) -> Dict[str, Any]:
     # 🌟 STEP 3: HUMAN-IN-THE-LOOP (HITL) INTERACTIVE INGESTION INTERFACE
     # ==============================================================================
     print("\n" + "="*80)
-    print("🤖 AUTOMATED ML PLATFORM: HUMAN-IN-THE-LOOP STRATEGY GATEWAY")
+    print("AUTOMATED ML PLATFORM: HUMAN-IN-THE-LOOP STRATEGY GATEWAY")
     print("="*80)
     
     # HITL Selection 1: Target Feature Sorted by Confidence
-    print("\n📌 DISCOVERED TARGET FEATURE CANDIDATES (Ranked by Confidence):")
+    print("\nDISCOVERED TARGET FEATURE CANDIDATES (Ranked by Confidence):")
     for idx, cand in enumerate(sorted_targets, 1):
-        print(f"  [{idx}] Column Name: '{cand.column_name}' | 🔥 Confidence Weight: {cand.confidence_weight:.2f}")
+        print(f"  [{idx}] Column Name: '{cand.column_name}' | Confidence Weight: {cand.confidence_weight:.2f}")
         print(f"      Description: {cand.reasoning}")
         
     chosen_target_output: Union[str, List[str]] = ""
     while True:
         try:
-            user_raw_input = input(f"\n👉 Select Target Column Index (Separate multiple with commas, e.g., 1,2): ").strip()
+            user_raw_input = input(f"\nSelect Target Column Index (Separate multiple with commas, e.g., 1,2): ").strip()
             
             # Parse commas and convert selections into clear integer elements
             raw_indices = [x.strip() for x in user_raw_input.split(",")]
@@ -154,26 +154,26 @@ def model_strategist_run(state: MLState) -> Dict[str, Any]:
                 chosen_target_output = mapped_targets[0] if len(mapped_targets) == 1 else mapped_targets
                 break
                 
-            print(f"❌ Invalid Choice. Select a valid index number or sequence list from 1 to {len(target_options)}.")
+            print(f"Error: Invalid Choice. Select a valid index number or sequence list from 1 to {len(target_options)}.")
         except ValueError:
-            print("❌ Invalid input format. Please enter clean whole integers separated by commas (e.g., 1, 2).")
+            print("Error: Invalid input format. Please enter clean whole integers separated by commas (e.g., 1, 2).")
 
     # HITL Selection 2: Training Algorithm Sorted by Suitability
-    print("\n📌 RECOMMENDED MACHINE LEARNING ALGORITHMS (Ranked by Suitability):")
+    print("\nRECOMMENDED MACHINE LEARNING ALGORITHMS (Ranked by Suitability):")
     for idx, cand_algo in enumerate(sorted_algos, 1):
-        print(f"  [{idx}] Algorithm Name: {cand_algo.algorithm_name} | 📈 Suitability Weight: {cand_algo.suitability_weight:.2f}")
+        print(f"  [{idx}] Algorithm Name: {cand_algo.algorithm_name} | Suitability Weight: {cand_algo.suitability_weight:.2f}")
         print(f"      Description: {cand_algo.rationale}")
         
     chosen_algorithm = None
     while True:
         try:
-            algo_selection = int(input(f"\n👉 Select Training Model Algorithm Index (1-{len(algo_options)}): ").strip())
+            algo_selection = int(input(f"\nSelect Training Model Algorithm Index (1-{len(algo_options)}): ").strip())
             if 1 <= algo_selection <= len(algo_options):
                 chosen_algorithm = algo_options[algo_selection - 1]
                 break
-            print(f"❌ Invalid Choice. Select a valid number from 1 to {len(algo_options)}.")
+            print(f"Error: Invalid Choice. Select a valid number from 1 to {len(algo_options)}.")
         except ValueError:
-            print("❌ Invalid input. Please enter a valid integer choice index.")
+            print("Error: Invalid input. Please enter a valid integer choice index.")
 
     print("\n" + "="*80)
     log.info("HITL Input Ingested. Selected Target(s): %s | Selected Model Architecture: '%s'", str(chosen_target_output), chosen_algorithm)

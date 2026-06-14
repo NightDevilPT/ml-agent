@@ -20,20 +20,3 @@ dependencies = [
     "scikit-learn>=1.9.0",
     "xgboost>=3.2.0",
 ]
-
-[tool.uv.workspace]
-members = [
-    ".temp/ml_agent_b78761f7",
-    ".temp/ml_agent_f1ee6f6b",
-    ".temp/ml_agent_2def2aae",
-    ".temp/ml_agent_fdb691d1",
-    ".temp/ml_agent_4d334dd9",
-    ".temp/ml_agent_77e4dc9f",
-    ".temp/ml_agent_98b44480",
-    ".temp/ml_agent_3b7b998f",
-    ".temp/ml_agent_c0dbe983",
-    ".temp/ml_agent_ec2df7cc",
-    ".temp/ml_agent_03204f7e",
-    ".temp/ml_agent_264a0b16",
-    ".temp/ml_agent_b414351a",
-]

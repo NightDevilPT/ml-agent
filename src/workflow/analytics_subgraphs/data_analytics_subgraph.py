@@ -8,11 +8,12 @@ from langgraph.graph import StateGraph, END
 from workflow.state import MLState
 
 # Import finalized node execution scripts matching step progress
-from workflow.subgraphs.nodes.clone_dataset import clone_dataset_run
-from workflow.subgraphs.nodes.combine_datasets import combine_datasets_run
-from workflow.subgraphs.nodes.single_file_cleaner import single_file_cleaner_run
-from workflow.subgraphs.nodes.dataset_auditor import dataset_auditor_run
-from workflow.subgraphs.nodes.model_strategist import model_strategist_run
+from workflow.analytics_subgraphs.nodes.clone_dataset import clone_dataset_run
+from workflow.analytics_subgraphs.nodes.combine_datasets import combine_datasets_run
+from workflow.analytics_subgraphs.nodes.single_file_cleaner import single_file_cleaner_run
+from workflow.analytics_subgraphs.nodes.dataset_auditor import dataset_auditor_run
+from workflow.analytics_subgraphs.nodes.splitter_export import splitter_export_run
+from workflow.analytics_subgraphs.nodes.model_strategist import model_strategist_run
 
 
 # --- Sub-Graph Conditional Routing Rules ---
@@ -57,7 +58,8 @@ def build_analytics_subgraph() -> StateGraph:
     sub_workflow.add_node("combine_datasets", combine_datasets_run)
     sub_workflow.add_node("single_file_cleaner", single_file_cleaner_run)
     sub_workflow.add_node("dataset_auditor", dataset_auditor_run)
-    sub_workflow.add_node("model_strategist", model_strategist_run) # Added strategist
+    sub_workflow.add_node("splitter_export", splitter_export_run)
+    sub_workflow.add_node("model_strategist", model_strategist_run)
     
     # 2. Wire up the paths
     sub_workflow.set_entry_point("clone_dataset")
@@ -71,17 +73,20 @@ def build_analytics_subgraph() -> StateGraph:
     sub_workflow.add_edge("combine_datasets", "single_file_cleaner")
     sub_workflow.add_edge("single_file_cleaner", "dataset_auditor")
     
-    # 3. Modify Auditor Routing: Clear audit pathways lead to the Strategy Selection Node
+    # 3. Auditor Routing: Clear audit pathways lead directly to the Splitter Node
     sub_workflow.add_conditional_edges(
         "dataset_auditor",
         route_on_audit_evaluation,
         {
-            "clear_to_exit": "model_strategist",     # Clean data goes straight to Strategy/HITL selection
+            "clear_to_exit": "splitter_export",       # 🌟 Fix: Audited master file moves straight to splitter
             "reprocess_file": "single_file_cleaner"
         }
     )
     
-    # 4. The strategist node marks the final exit point of your data analytics subgraph
+    # 4. Chain the horizontal partition outputs cleanly into the strategy analyzer
+    sub_workflow.add_edge("splitter_export", "model_strategist")  # 🌟 Fix: Pass split train datasets to strategist
+    
+    # 5. The strategist node marks the final exit point of your data analytics subgraph
     sub_workflow.add_edge("model_strategist", END)
     
     return sub_workflow.compile()
