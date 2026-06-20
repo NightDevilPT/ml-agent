@@ -5,6 +5,7 @@ Phase: LLM Schema Recipe Generation & Native Python Execution Matrix
 
 import json
 import re
+import math
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 import numpy as np
@@ -64,7 +65,7 @@ class DatasetValidationRecipe(BaseModel):
 # ==============================================================================
 # The Deterministic Python Execution Engine
 # ==============================================================================
-def execute_column_recipe_engine(df: pd.DataFrame, recipe: ColumnRecipe) -> Optional[pd.Series]:
+def execute_column_recipe_engine(df: pd.DataFrame, recipe: ColumnRecipe, is_target: bool = False) -> Optional[pd.Series]:
     """Applies strict, explicit data transformations on a raw column based on its recipe blueprint."""
     col = recipe.column_name
     series = df[col].copy()
@@ -97,38 +98,11 @@ def execute_column_recipe_engine(df: pd.DataFrame, recipe: ColumnRecipe) -> Opti
 
         series = series.str.strip()
 
-        if recipe.unparsable_text_fallback is not None:
-            series = series.apply(
-                lambda x: (
-                    recipe.unparsable_text_fallback
-                    if not re.search(r"\d", str(x))
-                    else x
-                )
-            )
-
         numeric_series = pd.to_numeric(series, errors="coerce")
-
-        if numeric_series.isna().sum() > 0:
-            strategy = recipe.missing_value_strategy.lower()
-            if strategy == "mean":
-                numeric_series = numeric_series.fillna(numeric_series.mean())
-            elif strategy == "mode":
-                mode_val = numeric_series.mode()
-                numeric_series = numeric_series.fillna(
-                    mode_val[0] if not mode_val.empty else 0.0
-                )
-            elif strategy == "constant":
-                fallback_val = float(recipe.unparsable_text_fallback) if recipe.unparsable_text_fallback.replace('.', '', 1).isdigit() else 0.0
-                numeric_series = numeric_series.fillna(fallback_val)
-            else:
-                numeric_series = numeric_series.fillna(
-                    numeric_series.median() if not numeric_series.isna().all() else 0.0
-                )
-
         return numeric_series.astype("float64")
 
-    # Strategy D: Clean string categories/text variables safely before encoding sweeps
-    return series.astype(str).str.strip().fillna("Unknown")
+    # Strategy D: Clean string categories/text variables safely before encoding sweeps (retaining missing values as NaN)
+    return series.astype(str).str.strip().apply(lambda x: np.nan if str(x).lower() in ["nan", "null", "none", ""] else x)
 
 
 # ==============================================================================
@@ -173,22 +147,24 @@ def single_file_cleaner_run(state: MLState) -> Dict[str, Any]:
             "node_tokens": {**historical_node_tokens, "single_file_cleaner": 0},
         }
 
-    df_peek = df_raw.head(10)
+    df_peek = df_raw.head(5)
 
     # Call Structured LLM to establish granular processing configuration rules
     llm = get_llm(provider="gemini", temperature=0.0)
     structured_recipe_agent = llm.with_structured_output(DatasetValidationRecipe, include_raw=True)
 
     prompt = f"""
-    You are a Principal Lead Data Infrastructure Platform Engineer. Analyze this raw dataset preview snapshot sample:
-    {df_peek.to_json(orient='records', indent=2)}
+    You are a Principal Lead Data Infrastructure Platform Engineer.    Analyze this raw dataset preview snapshot sample (CSV format):
+    {df_peek.to_csv(index=False)}
 
     Your task is to evaluate the feature columns and output an explicit parsing and encoding recipe JSON.
     
     Encoding Instructions:
     1. Identify the primary prediction target column.
-    2. If a column contains unique tracking tokens or identification codes (like Patient_ID, User_ID, Row_ID), set text_encoding_strategy to 'drop'.
-    3. If a column contains plain text categories with no logical order (like Gender, State, Cancer_Type, Fuel_Type), set text_encoding_strategy to 'one_hot'.
+    2. If a column contains unique tracking tokens, hashes, or identification codes (like Patient_ID, User_ID, Row_ID, name, description), set text_encoding_strategy to 'drop'.
+    3. Category Cardinality & Encoding Rules:
+       - If a categorical/text column has high cardinality (many unique string values, e.g. more than 15 unique values, such as 'name', 'model', 'city', 'hospital', 'company'), set text_encoding_strategy to 'ordinal' (label encoding). This prevents expanding the feature space with hundreds of sparse dummy columns and makes it much easier for tree models to learn.
+       - Set text_encoding_strategy to 'one_hot' ONLY for categorical columns with low cardinality (15 or fewer unique values, such as 'Gender', 'Fuel_Type', 'State', 'Status').
     4. If a column contains text with a clear ranking or progression sequence (like Stage I, Stage II, Stage III or Low, Medium, High), set text_encoding_strategy to 'ordinal'.
     5. For numeric metrics or datetimes, set text_encoding_strategy to 'none'.
     
@@ -219,11 +195,12 @@ def single_file_cleaner_run(state: MLState) -> Dict[str, Any]:
         one_hot_targets = []
         ordinal_targets = []
 
-        # Step 1: Clean, normalize, and drop specified columns
+        # Step 1: Clean and normalize columns (retaining NaNs)
         for col_recipe in recipe_blueprint.column_recipes:
             raw_col_name = col_recipe.column_name.strip()
             if raw_col_name in df_raw.columns:
-                processed_series = execute_column_recipe_engine(df_raw, col_recipe)
+                is_target = (raw_col_name == recipe_blueprint.recommended_target)
+                processed_series = execute_column_recipe_engine(df_raw, col_recipe, is_target)
                 
                 if processed_series is None:
                     log.info("--> Dropping column space completely: '%s'", raw_col_name)
@@ -239,26 +216,95 @@ def single_file_cleaner_run(state: MLState) -> Dict[str, Any]:
                 elif col_recipe.text_encoding_strategy == "ordinal" and raw_col_name != recipe_blueprint.recommended_target:
                     ordinal_targets.append(raw_col_name)
 
-        # Step 2: Native Mathematical Encoding Operations
+        # Step 2: Handle target cleaning and dropping invalid rows
+        target_col = recipe_blueprint.recommended_target
+        if target_col in df_base.columns:
+            before_drop = len(df_base)
+            target_recipe = next((r for r in recipe_blueprint.column_recipes if r.column_name == target_col), None)
+            
+            if target_recipe and target_recipe.logical_type == "numeric":
+                df_base[target_col] = pd.to_numeric(df_base[target_col], errors="coerce")
+                df_base = df_base.dropna(subset=[target_col])
+                # Drop rows where target is <= 0 for numeric targets that are positive-value (e.g. price, close, counts)
+                if df_base[target_col].median() > 0:
+                    df_base = df_base[df_base[target_col] > 0]
+            else:
+                df_base = df_base.dropna(subset=[target_col])
+                
+            log.info("Target cleaning: dropped %d rows with missing or invalid target values.", before_drop - len(df_base))
+
+        # Step 3: Remove extremely noisy rows with too many missing values (threshold: at least 65% columns must be valid)
+        num_cols = len(df_base.columns)
+        if num_cols > 1:
+            min_valid_cols = math.ceil(0.65 * num_cols)
+            before_drop_thresh = len(df_base)
+            df_base = df_base.dropna(thresh=min_valid_cols)
+            log.info("Missingness cleanup: dropped %d rows with too many missing values (threshold: %d/%d valid columns).", 
+                     before_drop_thresh - len(df_base), min_valid_cols, num_cols)
+
+        # Step 4: Perform missing value imputation on remaining rows
+        for col_recipe in recipe_blueprint.column_recipes:
+            col_name = col_recipe.column_name.strip()
+            if col_name in df_base.columns:
+                series = df_base[col_name]
+                if series.isna().sum() > 0:
+                    strategy = col_recipe.missing_value_strategy.lower()
+                    if col_recipe.logical_type == "numeric":
+                        if strategy == "mean":
+                            df_base[col_name] = series.fillna(series.mean())
+                        elif strategy == "mode":
+                            mode_val = series.mode()
+                            df_base[col_name] = series.fillna(mode_val[0] if not mode_val.empty else 0.0)
+                        elif strategy == "constant":
+                            fallback_val = float(col_recipe.unparsable_text_fallback) if col_recipe.unparsable_text_fallback.replace('.', '', 1).isdigit() else 0.0
+                            df_base[col_name] = series.fillna(fallback_val)
+                        else:  # median
+                            df_base[col_name] = series.fillna(series.median() if not series.isna().all() else 0.0)
+                    else:  # categorical/datetime/boolean
+                        # For categorical, map median/mean/mode to mode of column to avoid generating 'Unknown' classes unnecessarily
+                        if strategy in ["mode", "median", "mean"]:
+                            mode_val = series.mode()
+                            df_base[col_name] = series.fillna(mode_val[0] if not mode_val.empty else "Unknown")
+                        else:
+                            df_base[col_name] = series.fillna("Unknown")
+
+        # Step 5: Native Mathematical Encoding Operations
         df_final = df_base.copy()
 
         # Execute Ordinal Category Mapping
+        category_mappings = {}
         for col in ordinal_targets:
             log.info("Applying programmatic Ordinal Encoding on column: '%s'", col)
-            df_final[col] = pd.factorize(df_final[col])[0].astype("float64")
+            labels, uniques = pd.factorize(df_final[col])
+            df_final[col] = labels.astype("float64")
+            category_mappings[col] = {str(x): int(i) for i, x in enumerate(uniques)}
 
         # Execute One-Hot Category Expansion Matrix
         if one_hot_targets:
             log.info("Applying programmatic One-Hot Dummy Encoding on columns: %s", one_hot_targets)
             df_final = pd.get_dummies(df_final, columns=one_hot_targets, drop_first=True, dtype="float64")
 
-        # Step 3: Handle Target Formatting explicitly
+        # Handle Categorical Target encoding if not numeric
         target_col = recipe_blueprint.recommended_target
-        if target_col in df_final.columns and not pd.api.types.is_numeric_dtype(df_final[target_col]):
-            log.info("Encoding classification label metrics on target feature: '%s'", target_col)
-            df_final[target_col] = pd.factorize(df_final[target_col])[0]
+        if target_col in df_final.columns:
+            target_recipe = next((r for r in recipe_blueprint.column_recipes if r.column_name == target_col), None)
+            if target_recipe and target_recipe.logical_type != "numeric" and not pd.api.types.is_numeric_dtype(df_final[target_col]):
+                log.info("Encoding classification label metrics on target feature: '%s'", target_col)
+                labels, uniques = pd.factorize(df_final[target_col])
+                df_final[target_col] = labels.astype("float64")
+                category_mappings[target_col] = {str(x): int(i) for i, x in enumerate(uniques)}
 
-        # Step 4: Advanced Datetime Feature Engineering Layer
+        # Save category mappings JSON
+        mappings_path = train_output_path.parent / "category_mappings.json"
+        try:
+            import json
+            with open(mappings_path, "w", encoding="utf-8") as f:
+                json.dump(category_mappings, f, indent=4, ensure_ascii=False)
+            log.info("Category mappings saved successfully to: %s", mappings_path)
+        except Exception as e:
+            log.error("Failed saving category mappings: %s", str(e))
+
+        # Step 6: Advanced Datetime Feature Engineering Layer
         for col in datetime_cols:
             if col in df_final.columns:
                 log.info("Feature Engineering: Decomposing datetime column '%s' into numeric elements.", col)

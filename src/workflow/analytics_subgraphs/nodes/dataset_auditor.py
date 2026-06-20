@@ -95,10 +95,10 @@ def dataset_auditor_run(state: MLState) -> Dict[str, Any]:
     3. Target features (like 'Status') mapped to 0 and 1 are perfectly valid and correct.
     
     [RAW SOURCE RECORDS SAMPLE]
-    {raw_rows_text}
+{raw_rows_text}
 
-    [PROCESSED TRAINING RECORDS SAMPLE]
-    {train_rows_text}
+[PROCESSED]
+{train_rows_text}
 
     Verify that no raw text entities or string dates are left over in the processed dataset. If the dataset contains only numeric matrices, set audit_passed to True.
     """

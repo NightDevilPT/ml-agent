@@ -52,6 +52,7 @@ def main():
         "test_path": "",
         "target_recommendations": [],
         "chosen_target": None,
+        "problem_type_recommendations": [],
         "problem_type": None,
         "algorithm_recommendations": [],
         "chosen_algorithm": None,

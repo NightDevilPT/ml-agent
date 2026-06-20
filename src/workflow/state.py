@@ -26,6 +26,7 @@ class MLState(TypedDict):
     # ----------------------------------------------------------------
     target_recommendations: List[Dict[str, Any]]
     chosen_target: Optional[Union[str, List[str]]]  # Selected target feature column(s)
+    problem_type_recommendations: List[Dict[str, Any]]
     problem_type: Optional[str]       # Inferred task: "Classification" or "Regression"
     algorithm_recommendations: List[Dict[str, Any]]
     chosen_algorithm: Optional[str]   # Selected model architecture (e.g., "XGBoostClassifier")

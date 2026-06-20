@@ -62,9 +62,19 @@ def docker_sandbox_executor_run(state: MLState) -> Dict[str, Any]:
         }
 
     log.info("Chained training and holdout inference snapshot executed successfully.")
+    
+    stdout_raw = run_proc.stdout
+    scorecard_extracted = stdout_raw
+    start_tag = "=== START OF MODEL PERFORMANCE SCORECARD ==="
+    end_tag = "=== END OF MODEL PERFORMANCE SCORECARD ==="
+    if start_tag in stdout_raw and end_tag in stdout_raw:
+        start_idx = stdout_raw.find(start_tag)
+        end_idx = stdout_raw.find(end_tag) + len(end_tag)
+        scorecard_extracted = stdout_raw[start_idx:end_idx].strip()
+        
     return {
         "script_execution_success": True,
-        "runtime_stdout": run_proc.stdout,
+        "runtime_stdout": scorecard_extracted,
         "runtime_stderr": None,
         "model_prediction_accurate": None
     }
