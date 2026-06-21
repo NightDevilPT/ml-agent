@@ -20,19 +20,7 @@ This document provides a comprehensive technical breakdown of all operational no
 
 ---
 
-### 2. `combine_datasets` (Data Pooling Node)
-* **File Location**: [`src/workflow/analytics_subgraphs/nodes/combine_datasets.py`](file:///c:/Users/Pawan/Desktop/FullStackProject/ml-agent/src/workflow/analytics_subgraphs/nodes/combine_datasets.py)
-* **Entrypoint Function**: `combine_datasets_run`
-* **Operational Flow**:
-  1. Triggered conditionally only if the input directory contains multiple spreadsheet sheets.
-  2. Discovers and logs details of staged file locations, verifying multi-sheet configurations before passing variables to the cleaning node.
-* **State Keys**:
-  * **Inputs**: `all_files`, `token_count`, `node_tokens`
-  * **Outputs**: `consolidation_feedback` (set to `None`), `node_tokens` (registers itself with 0 token overhead)
-
----
-
-### 3. `single_file_cleaner` (Auto-Adaptive Cleaning Node)
+### 2. `single_file_cleaner` (Auto-Adaptive Cleaning Node)
 * **File Location**: [`src/workflow/analytics_subgraphs/nodes/single_file_cleaner.py`](file:///c:/Users/Pawan/Desktop/FullStackProject/ml-agent/src/workflow/analytics_subgraphs/nodes/single_file_cleaner.py)
 * **Entrypoint Function**: `single_file_cleaner_run`
 * **Operational Flow**:
@@ -54,7 +42,7 @@ This document provides a comprehensive technical breakdown of all operational no
 
 ---
 
-### 4. `dataset_auditor` (Dual-Gate Validation Gate)
+### 3. `dataset_auditor` (Dual-Gate Validation Gate)
 * **File Location**: [`src/workflow/analytics_subgraphs/nodes/dataset_auditor.py`](file:///c:/Users/Pawan/Desktop/FullStackProject/ml-agent/src/workflow/analytics_subgraphs/nodes/dataset_auditor.py)
 * **Entrypoint Function**: `dataset_auditor_run`
 * **Operational Flow**:
@@ -67,7 +55,7 @@ This document provides a comprehensive technical breakdown of all operational no
 
 ---
 
-### 5. `splitter_export` (In-Place Partitioning Node)
+### 4. `splitter_export` (In-Place Partitioning Node)
 * **File Location**: [`src/workflow/analytics_subgraphs/nodes/splitter_export.py`](file:///c:/Users/Pawan/Desktop/FullStackProject/ml-agent/src/workflow/analytics_subgraphs/nodes/splitter_export.py)
 * **Entrypoint Function**: `splitter_export_run`
 * **Operational Flow**:
@@ -80,7 +68,7 @@ This document provides a comprehensive technical breakdown of all operational no
 
 ---
 
-### 6. `model_strategist` (Strategy Recommendations & HITL Ingestion Node)
+### 5. `model_strategist` (Strategy Recommendations & HITL Ingestion Node)
 * **File Location**: [`src/workflow/analytics_subgraphs/nodes/model_strategist.py`](file:///c:/Users/Pawan/Desktop/FullStackProject/ml-agent/src/workflow/analytics_subgraphs/nodes/model_strategist.py)
 * **Entrypoint Function**: `model_strategist_run`
 * **Operational Flow**:
@@ -95,7 +83,7 @@ This document provides a comprehensive technical breakdown of all operational no
 
 ## 🤖 Phase 2: ML Architect Subgraph
 
-### 7. `ml_script_architect` (ML Code Generation Node)
+### 6. `ml_script_architect` (ML Code Generation Node)
 * **File Location**: [`src/workflow/ml_subgraph/nodes/ml_script_architect.py`](file:///c:/Users/Pawan/Desktop/FullStackProject/ml-agent/src/workflow/ml_subgraph/nodes/ml_script_architect.py)
 * **Entrypoint Function**: `ml_script_architect_run`
 * **Operational Flow**:

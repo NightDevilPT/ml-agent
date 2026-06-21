@@ -29,12 +29,7 @@ graph TD
     subgraph Subgraph_1 [Data Analytics Subgraph Phase Internal Logic]
         direction TB
         da_start([Entry]) --> clone_dataset[clone_dataset]
-        clone_dataset --> route_files{File Count?}
-        
-        route_files -- "all_files > 1" --> combine_datasets[combine_datasets]
-        route_files -- "all_files == 1" --> single_file_cleaner[single_file_cleaner]
-        
-        combine_datasets --> single_file_cleaner
+        clone_dataset --> single_file_cleaner[single_file_cleaner]
         single_file_cleaner --> dataset_auditor[dataset_auditor]
         
         dataset_auditor --> route_audit{Data Valid?}
@@ -66,9 +61,9 @@ graph TD
     %% Assign Style Classes
     class START,END,da_start,da_end,ml_start,ml_end,executor_fail startEnd;
     class DATA_PHASE,ARCH_PHASE macroPhase;
-    class clone_dataset,combine_datasets,script_io_writer,docker_sandbox_executor,splitter_export hostNode;
+    class clone_dataset,script_io_writer,docker_sandbox_executor,splitter_export hostNode;
     class single_file_cleaner,dataset_auditor,model_strategist,ml_script_architect,llm_prediction_validator subNode;
-    class route_files,route_audit,route_exec decision;
+    class route_audit,route_exec decision;
 
 ```
 
@@ -81,7 +76,6 @@ graph TD
 This subgraph orchestrates data pooling, structural schema stabilization, automated cleaning, and data-quality verification. It encapsulates all steps prior to model synthesis.
 
 * **`clone_dataset` (Host Python Node):** Extracts target directory pathways, isolates file names from Windows structural variants, handles string sanitation, provisions a secure workspace folder under `.temp/ml_agent_{foldername}_{uuid}/`, and copies source tables to prevent data loss.
-* **`combine_datasets` (Host Python Node):** Automatically handles multi-file pooling layouts if several related source sheets exist within the targeted directory.
 * **`single_file_cleaner` (LLM-Blueprint Python Node):** Generates and runs a dataset-specific Python preprocessing script in an isolated Docker container context. The generated script executes a 9-stage pipeline including data type checks, datetime extraction, missing value imputation, outlier clipping, and categorical encoding (One-Hot or Label Encoding), saving index maps to `category_mappings.json`.
 * **`dataset_auditor` (Dual-Gate Verification Node):** A critical automated quality guardrail. Gate 1 uses zero-token python scripts to scan arrays for residual strings or missing cells. Gate 2 leverages an AI agent to verify data type correctness. If data issues are found, it loops back to the cleaner up to 2 times before triggering a fallback loop circuit breaker.
 * **`splitter_export` (Host Python Node):** Evaluates the clean matrix data, shuffles the rows, and splits the data into a strict **80/20** partition (`train_dataset.csv` and `test_dataset.csv`). This sets aside 20% of the raw data as a true validation holdout split for final model verification.

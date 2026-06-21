@@ -9,7 +9,6 @@ from workflow.state import MLState
 
 # Import finalized node execution scripts matching step progress
 from workflow.analytics_subgraphs.nodes.clone_dataset import clone_dataset_run
-from workflow.analytics_subgraphs.nodes.combine_datasets import combine_datasets_run
 from workflow.analytics_subgraphs.nodes.single_file_cleaner import single_file_cleaner_run
 from workflow.analytics_subgraphs.nodes.dataset_auditor import dataset_auditor_run
 from workflow.analytics_subgraphs.nodes.splitter_export import splitter_export_run
@@ -17,11 +16,6 @@ from workflow.analytics_subgraphs.nodes.model_strategist import model_strategist
 
 
 # --- Sub-Graph Conditional Routing Rules ---
-def route_on_file_count(state: MLState) -> str:
-    """Branches trajectory based on whether single or multi-file sets exist."""
-    if len(state.get("all_files", [])) > 1:
-        return "multi_file_branch"
-    return "single_file_branch"
 
 
 def route_on_audit_evaluation(state: MLState) -> str:
@@ -55,7 +49,6 @@ def build_analytics_subgraph() -> StateGraph:
     
     # 1. Register all completed nodes
     sub_workflow.add_node("clone_dataset", clone_dataset_run)
-    sub_workflow.add_node("combine_datasets", combine_datasets_run)
     sub_workflow.add_node("single_file_cleaner", single_file_cleaner_run)
     sub_workflow.add_node("dataset_auditor", dataset_auditor_run)
     sub_workflow.add_node("splitter_export", splitter_export_run)
@@ -64,13 +57,7 @@ def build_analytics_subgraph() -> StateGraph:
     # 2. Wire up the paths
     sub_workflow.set_entry_point("clone_dataset")
     
-    sub_workflow.add_conditional_edges(
-        "clone_dataset",
-        route_on_file_count,
-        {"multi_file_branch": "combine_datasets", "single_file_branch": "single_file_cleaner"}
-    )
-    
-    sub_workflow.add_edge("combine_datasets", "single_file_cleaner")
+    sub_workflow.add_edge("clone_dataset", "single_file_cleaner")
     sub_workflow.add_edge("single_file_cleaner", "dataset_auditor")
     
     # 3. Auditor Routing: Clear audit pathways lead directly to the Splitter Node
