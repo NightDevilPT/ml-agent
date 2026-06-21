@@ -82,7 +82,7 @@ This subgraph orchestrates data pooling, structural schema stabilization, automa
 
 * **`clone_dataset` (Host Python Node):** Extracts target directory pathways, isolates file names from Windows structural variants, handles string sanitation, provisions a secure workspace folder under `.temp/ml_agent_{foldername}_{uuid}/`, and copies source tables to prevent data loss.
 * **`combine_datasets` (Host Python Node):** Automatically handles multi-file pooling layouts if several related source sheets exist within the targeted directory.
-* **`single_file_cleaner` (LLM-Blueprint Python Node):** Generates a custom, Pydantic-validated dataset transformation recipe via Gemini. Cleans missing cell instances using column medians, parses complex mixed string notations, eliminates commas from currency values to avoid precision issues, and breaks down date strings into individual `_year`, `_month`, and `_day` features.
+* **`single_file_cleaner` (LLM-Blueprint Python Node):** Generates a custom, Pydantic-validated dataset transformation recipe via Gemini. Cleans missing cell instances using column medians, parses complex mixed string notations, eliminates commas from currency values to avoid precision issues, breaks down date strings into individual `_year`, `_month`, and `_day` features, and saves category index mappings to `processed-datasets/category_mappings.json` mapping original categories to numbers.
 * **`dataset_auditor` (Dual-Gate Verification Node):** A critical automated quality guardrail. Gate 1 uses zero-token python scripts to scan arrays for residual strings or missing cells. Gate 2 leverages an AI agent to verify data type correctness. If data issues are found, it loops back to the cleaner up to 2 times before triggering a fallback loop circuit breaker.
 * **`splitter_export` (Host Python Node):** Evaluates the clean matrix data, shuffles the rows, and splits the data into a strict **80/20** partition (`train_dataset.csv` and `test_dataset.csv`). This sets aside 20% of the raw data as a true validation holdout split for final model verification.
 * **`model_strategist` (HITL Selection Ingestion Node):** Analyzes target variable dimensions to distinguish between classification and regression. It ranks compatible algorithms (e.g., `XGBoostRegressor`) and pauses the pipeline, launching a styled Human-in-the-Loop terminal menu where developers explicitly confirm target columns and core model choices.
@@ -93,9 +93,9 @@ This subgraph orchestrates data pooling, structural schema stabilization, automa
 
 This phase handles code generation, container compilation, isolated container runs, and automated output evaluation.
 
-* **`ml_script_architect` (LLM Structured Generator Node):** Takes selected target definitions and model frameworks, prompting an LLM to generate end-to-end training and scoring code. It explicitly injects configuration directives (`pd.set_option('display.float_format', ...)`) to format numbers correctly and avoid scientific notation errors in terminal output log streams.
+* **`ml_script_architect` (LLM Structured Generator Node):** Takes selected target definitions and model frameworks, prompting an LLM to generate end-to-end training and scoring code. It generates a multi-target execution script that fits separate estimators for each target, computes metrics, and automatically maps numeric codes back to category strings using `category_mappings.json` (including predictions `Pred_<target>`) for readable visual formatting. It injects configuration directives (`pd.set_option('display.float_format', ...)`, `pd.set_option('display.width', 1000)`) to format numbers correctly and prevent wrapping.
 * **`script_io_writer` (Host Python Node):** Cleans text code fences, commits `train.py` and `main.py` blocks to disk, and structures a unified, multi-stage `Dockerfile` tagged with the unique run workspace ID. It registers a combined execution entrypoint (`CMD ["bash", "-c", "python train.py --mode train && python main.py --mode evaluate"]`).
-* **`docker_sandbox_executor` (Docker Engine Bridge Node):** Spawns a subprocess to build a self-contained container image based on the temporary folder name. It runs the container, saves the model artifact inside the workspace memory, prints an aligned markdown verification scorecard to the console, and destroys the runtime space via `--rm` switches to keep things fast and tidy.
+* **`docker_sandbox_executor` (Docker Engine Bridge Node):** Spawns a subprocess to build a self-contained container image based on the temporary folder name. It runs the container, saves the model artifact inside the workspace memory, extracts and stores only the performance scorecard block in the state variables (keeping the `state_record.json` extremely compact), and destroys the runtime space via `--rm` switches.
 * **`llm_prediction_validator` (Semantic Audit Gate Node):** Evaluates the terminal scorecard string output. It acts as a semantic checker, verifying that predictions are dynamic, change down rows, and match the target domain properties (e.g., catching model collapse or impossible negative asset values), providing a clean pass/fail status for the pipeline stage.
 
 ---
@@ -247,8 +247,8 @@ Below is a complete serialized JSON snapshot of the state object generated durin
     "script_execution_success": true, 
     // [Comment] Run status tracker confirming container exited successfully with code 0.
     
-    "runtime_stdout": "Model saved to /workspace/model.joblib\n       Open        High         Low           Volume        Close   Adj Close  Pred_Close\n 19106.4004  19371.0000  18355.9004 14839499776.0000  19114.1992  19114.1992  19045.3398", 
-    // [Comment] Sanitized terminal string log holding clear plain floats instead of scientific exponential notation.
+    "runtime_stdout": "=== START OF MODEL PERFORMANCE SCORECARD ===\nTask Strategy: Regression\nSelected Framework: XGBoostRegressor\nTarget Variables: [\"Close\", \"Adj Close\"]\n\nTarget: Close (Regression)\nMean Squared Error: 5312.4496\nMean Absolute Error: 58.1157\nR-squared (R2) Score: 0.9421\n...\n===================================\n=== END OF MODEL PERFORMANCE SCORECARD ===", 
+    // [Comment] Sanitized terminal string log holding only the isolated model performance scorecard block.
     
     "runtime_stderr": null, 
     // [Comment] Standard runtime exception register; evaluates to null on optimal executions.
@@ -291,7 +291,8 @@ Once the workflow finishes execution successfully, the targeted workspace direct
 │
 ├── 📁 processed-datasets/
 │   ├── 📄 train_dataset.csv            # Clean numerical layout containing 80% split rows for model fitting.
-│   └── 📄 test_dataset.csv             # Clean numerical layout containing 20% split rows for unseen testing.
+│   ├── 📄 test_dataset.csv             # Clean numerical layout containing 20% split rows for unseen testing.
+│   └── 📄 category_mappings.json       # Generated dictionary mapping original category values to index codes.
 │
 ├── 📄 Dockerfile                       # Scaffolded multi-stage Docker environment container configuration.
 ├── 📄 model.joblib                     # Finalized binary machine learning model artifact extracted from container filesystem.

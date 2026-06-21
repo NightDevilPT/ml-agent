@@ -17,6 +17,12 @@ class PredictionValidationContract(BaseModel):
     validation_critique: str = Field(
         description="A concise summary critique analyzing why the data rows look correct or pointing out specific prediction anomalies."
     )
+    model_rating: float = Field(
+        description="A prediction quality score rating between 0.0 (unusable model) and 1.0 (highly accurate/good model) indicating how well the model predicts targets based on metrics."
+    )
+    model_goodness_explanation: str = Field(
+        description="A detailed explanation analyzing how good the model's predictions are and why it received this rating based on the metrics."
+    )
 
 
 import re
@@ -37,7 +43,11 @@ def llm_prediction_validator_run(state: MLState) -> Dict[str, Any]:
         log.error("Validator Aborted: No terminal stdout data captured from sandbox container execution.")
         return {
             "model_prediction_accurate": False,
-            "runtime_stderr": "[VALIDATION FAILURE]: The holdout evaluation script returned an empty stdout console stream."
+            "runtime_stderr": "[VALIDATION FAILURE]: The holdout evaluation script returned an empty stdout console stream.",
+            "model_performance_rating": 0.0,
+            "model_goodness_explanation": "Aborted: No stdout console stream was returned to analyze model performance.",
+            "token_count": global_token_count,
+            "node_tokens": {**historical_node_tokens, "llm_prediction_validator": 0}
         }
 
     # Filter out timestamp patterns (e.g., "[2026-06-20 18:27:05]" or "2026-06-20 18:27:05") and clean up the lines
@@ -113,6 +123,11 @@ def llm_prediction_validator_run(state: MLState) -> Dict[str, Any]:
 2. Sane Metrics:
    - For Classification: Confirm accuracy is reasonable (Accuracy >= 0.55). If accuracy is below 0.55, set is_output_sane to False.
    - For Regression: Confirm R-squared (R2) is positive (R2 > 0). If R2 is negative, set is_output_sane to False.
+3. Rating and Goodness Evaluation:
+   - Determine if the predictions shown are correct or not based on standard metrics.
+   - Evaluate how good the model is overall.
+   - Provide a rating score between 0.0 (unusable/terrible) and 1.0 (perfectly accurate/highly optimized) and assign it to model_rating.
+   - Write a detailed critique in model_goodness_explanation explaining the rating and the model performance details.
 
 Populate the PredictionValidationContract perfectly."""
 
@@ -137,6 +152,8 @@ Populate the PredictionValidationContract perfectly."""
         return {
             "model_prediction_accurate": contract.is_output_sane,
             "runtime_stderr": reremed_log if not contract.is_output_sane else None,
+            "model_performance_rating": contract.model_rating,
+            "model_goodness_explanation": contract.model_goodness_explanation,
             "token_count": global_token_count + node_spent,
             "node_tokens": {**historical_node_tokens, "llm_prediction_validator": node_spent}
         }
@@ -146,6 +163,8 @@ Populate the PredictionValidationContract perfectly."""
         return {
             "model_prediction_accurate": False,
             "runtime_stderr": f"Semantic Validation Interface Exception: {str(ai_fault)}",
+            "model_performance_rating": 0.0,
+            "model_goodness_explanation": f"Semantic Validation Interface Exception: {str(ai_fault)}",
             "token_count": global_token_count,
             "node_tokens": {**historical_node_tokens, "llm_prediction_validator": 0}
         }

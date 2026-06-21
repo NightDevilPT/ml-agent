@@ -41,6 +41,8 @@ class MLState(TypedDict):
     script_execution_success: Optional[bool]  # Execution status tracking indicator flag
     runtime_stdout: Optional[str]             # Standard terminal logging trace capture
     runtime_stderr: Optional[str]             # Standard runtime trace crash exception log capture
+    model_performance_rating: Optional[float] # Numerical rating scored by LLM predictor quality validator between 0.0 and 1.0
+    model_goodness_explanation: Optional[str] # Critique text explanation verifying target models goodness details
 
     # ----------------------------------------------------------------
     # Local Self-Healing Loop Feedbacks

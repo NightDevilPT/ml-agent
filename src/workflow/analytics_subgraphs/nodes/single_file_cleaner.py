@@ -45,6 +45,10 @@ class ColumnRecipe(BaseModel):
         default="none",
         description="How text categories should be turned into numbers. Use 'one_hot' for unordered words, 'ordinal' for ranked categories like stages/grades, and 'drop' for unique IDs.",
     )
+    ordinal_categories_order: List[str] = Field(
+        default_factory=list,
+        description="Optional list of category strings in increasing order for ordinal/ranked categories. Leave empty for unordered categories."
+    )
 
 
 class DatasetValidationRecipe(BaseModel):
@@ -154,7 +158,7 @@ def single_file_cleaner_run(state: MLState) -> Dict[str, Any]:
     structured_recipe_agent = llm.with_structured_output(DatasetValidationRecipe, include_raw=True)
 
     prompt = f"""
-    You are a Principal Lead Data Infrastructure Platform Engineer.    Analyze this raw dataset preview snapshot sample (CSV format):
+    You are a Principal Lead Data Infrastructure Platform Engineer. Analyze this raw dataset preview snapshot sample (CSV format):
     {df_peek.to_csv(index=False)}
 
     Your task is to evaluate the feature columns and output an explicit parsing and encoding recipe JSON.
@@ -162,11 +166,16 @@ def single_file_cleaner_run(state: MLState) -> Dict[str, Any]:
     Encoding Instructions:
     1. Identify the primary prediction target column.
     2. If a column contains unique tracking tokens, hashes, or identification codes (like Patient_ID, User_ID, Row_ID, name, description), set text_encoding_strategy to 'drop'.
-    3. Category Cardinality & Encoding Rules:
+    3. Target Column Logical Type:
+       - If the target column represents a numeric/continuous quantity (such as Price, GPA, Salary, cost, survival months), its logical_type MUST be 'numeric', even if it has formatting characters (like commas, dollar signs) or occasional non-numeric text placeholder values (like 'Ask For Price', 'missing'). The cleaner will automatically clean formatting and drop rows with non-numeric target placeholders.
+    4. Numeric Column Identification:
+       - Columns containing numbers mixed with units, symbols, or commas (such as '45,000 kms', '$120.00', '15%') MUST be classified as 'numeric'. List the characters to strip (e.g., ['kms', 'km', ',', '$', '%']).
+    5. Category Cardinality & Encoding Rules:
        - If a categorical/text column has high cardinality (many unique string values, e.g. more than 15 unique values, such as 'name', 'model', 'city', 'hospital', 'company'), set text_encoding_strategy to 'ordinal' (label encoding). This prevents expanding the feature space with hundreds of sparse dummy columns and makes it much easier for tree models to learn.
        - Set text_encoding_strategy to 'one_hot' ONLY for categorical columns with low cardinality (15 or fewer unique values, such as 'Gender', 'Fuel_Type', 'State', 'Status').
-    4. If a column contains text with a clear ranking or progression sequence (like Stage I, Stage II, Stage III or Low, Medium, High), set text_encoding_strategy to 'ordinal'.
-    5. For numeric metrics or datetimes, set text_encoding_strategy to 'none'.
+    6. Ordinal Category Sequences:
+       - If a categorical column contains text representing a clear order or progression (such as 'Stage I', 'Stage II', 'Stage III' or 'Low', 'Medium', 'High'), set text_encoding_strategy to 'ordinal' AND list the values in increasing order in the 'ordinal_categories_order' property.
+    7. For numeric metrics or datetimes, set text_encoding_strategy to 'none'.
     
     Populate the DatasetValidationRecipe configuration contract perfectly.
     """
@@ -188,6 +197,21 @@ def single_file_cleaner_run(state: MLState) -> Dict[str, Any]:
 
     # 3. Native Data Processing & Mathematical Encoding Execution Matrix
     try:
+        # Safeguard: Programmatically patch recipe to drop unique ID/key columns
+        # If a categorical/text column has almost all unique values (unique ratio > 85%), drop it.
+        # However, do not drop the recommended target column!
+        for col_recipe in recipe_blueprint.column_recipes:
+            col_name = col_recipe.column_name.strip()
+            if col_name in df_raw.columns and col_name != recipe_blueprint.recommended_target:
+                series_non_null = df_raw[col_name].dropna()
+                if not series_non_null.empty:
+                    if col_recipe.logical_type in ["text", "category"] or col_recipe.text_encoding_strategy in ["one_hot", "ordinal"]:
+                        uniq_ratio = series_non_null.nunique() / len(series_non_null)
+                        # If cardinality is extremely high (e.g. > 85% unique values) and it's text/category
+                        if uniq_ratio > 0.85 and series_non_null.nunique() > 10:
+                            log.warn("Programmatic Safeguard: Auto-dropping unique key column '%s' (unique ratio: %.2f)", col_name, uniq_ratio)
+                            col_recipe.text_encoding_strategy = "drop"
+
         df_base = pd.DataFrame()
         df_raw.columns = [str(c).strip() for c in df_raw.columns]
         
@@ -275,9 +299,25 @@ def single_file_cleaner_run(state: MLState) -> Dict[str, Any]:
         category_mappings = {}
         for col in ordinal_targets:
             log.info("Applying programmatic Ordinal Encoding on column: '%s'", col)
-            labels, uniques = pd.factorize(df_final[col])
-            df_final[col] = labels.astype("float64")
-            category_mappings[col] = {str(x): int(i) for i, x in enumerate(uniques)}
+            col_recipe = next((r for r in recipe_blueprint.column_recipes if r.column_name == col), None)
+            
+            if col_recipe and col_recipe.ordinal_categories_order:
+                # If custom order is specified, map strictly using the order
+                order_list = col_recipe.ordinal_categories_order
+                uniques_in_df = df_final[col].dropna().unique()
+                extended_order = list(order_list)
+                for val in uniques_in_df:
+                    if str(val) not in extended_order and val not in extended_order:
+                        extended_order.append(val)
+                
+                order_map = {str(val): float(i) for i, val in enumerate(extended_order)}
+                df_final[col] = df_final[col].astype(str).map(order_map).fillna(-1.0)
+                category_mappings[col] = {str(k): int(v) for k, v in order_map.items()}
+            else:
+                # Fallback to standard factorize
+                labels, uniques = pd.factorize(df_final[col])
+                df_final[col] = labels.astype("float64")
+                category_mappings[col] = {str(x): int(i) for i, x in enumerate(uniques)}
 
         # Execute One-Hot Category Expansion Matrix
         if one_hot_targets:
