@@ -104,15 +104,17 @@ Snapshot:
        - Instantiate the correct classifier or regressor model for {chosen_algorithm}.
        - Fit the model on `X_train` and `df[t]`.
        - Store the model in a dictionary: `models[t] = model`.
-     - Save the `models` dictionary using `joblib.dump(models, model_path)`.
+     - Save a dictionary payload: `payload = {{"models": models, "target_mins": {{t: float(df[t].min()) for t in {json.dumps(chosen_target)}}}, "target_maxs": {{t: float(df[t].max()) for t in {json.dumps(chosen_target)}}}}}` using `joblib.dump(payload, model_path)`.
    - `--mode evaluate`:
-     - Load `model_path`, load the ENTIRE test dataset from `test_path`. Preprocess features `X_test` by dropping target columns.
+     - Load `model_path` (extract `models`, `target_mins`, and `target_maxs` from the saved payload), load the ENTIRE test dataset from `test_path`. Preprocess features `X_test` by dropping target columns.
      - For each target column `t` in {json.dumps(chosen_target)}:
-       - Predict using the model `models[t]` (use `predict()` for regression or classification).
+       - Determine target task type by inspecting the loaded model `models[t]`: if the word 'Classifier' is in the class name of the model `models[t]` (e.g. `type(models[t]).__name__`), the task is Classification, otherwise it is Regression. This prevents validation errors from train/test cardinality differences.
+       - Predict using the model `models[t]`.
+       - If the target task is Regression, clip the predictions to the training range of target `t` using `np.clip(preds, target_mins[t], target_maxs[t])` to prevent impossible predictions (like negative stars, negative prices, or values outside training limits).
        - Add the predictions to the evaluation dataframe under the column name `f"Pred_{{t}}"`.
        - Calculate appropriate metrics:
-         - Classification metrics: accuracy_score, precision_score (weighted), recall_score (weighted), f1_score (weighted).
-         - Regression metrics: mean_squared_error, mean_absolute_error, r2_score.
+         - Classification metrics (if target task is Classification): accuracy_score, precision_score (weighted), recall_score (weighted), f1_score (weighted).
+         - Regression metrics (if target task is Regression): mean_squared_error, mean_absolute_error, r2_score.
      - Print to stdout exactly in this block format:
        ```
        === START OF MODEL PERFORMANCE SCORECARD ===
@@ -128,7 +130,15 @@ Snapshot:
        === END OF MODEL PERFORMANCE SCORECARD ===
        ```
      - Construct a display table containing ALL rows of: {json.dumps(visible_features)} + ground-truth targets + prediction columns `Pred_<target_name>` for all targets.
-     - Human-Readable Mapping: Load `category_mappings.json` (which maps label strings to their integer indices, e.g. `{{\"column_name\": {{\"label_name\": 0}}}}`) from the processed-datasets directory if it exists. For any column in the display table, translate its numeric values back to the original category labels using the mapping. Crucially, if a column represents a prediction (i.e. starts with `'Pred_'`, like `Pred_<col>`), extract its original target name (e.g., `col_key = col[5:] if col.startswith('Pred_') else col`) and use the mapping for `col_key`. To translate the values safely, invert the map (`inv_map = {{str(v): k for k, v in mappings[col_key].items()}}`) and apply a robust helper function that handles float-to-int conversion (e.g., convert value `val` to `str(int(float(val)))`), NaNs, and missing values safely by returning `'Unknown'`. Update the display table copy with these mapped strings prior to printing.
+     - Human-Readable Mapping: Load `category_mappings.json` (which maps label strings to their integer indices, e.g. `{{\"column_name\": {{\"label_name\": 0}}}}`) from the processed-datasets directory if it exists. For any column in the display table, translate its numeric values back to the original category labels using the mapping. Crucially, if a column represents a prediction (i.e. starts with `'Pred_'`, like `Pred_<col>`), extract its original target name (e.g., `col_key = col[5:] if col.startswith('Pred_') else col`) and use the mapping for `col_key`. To translate the values safely, check if `col_key` exists in the mapping. If it does, you MUST invert the map and translate the column values back to strings. Use this exact logic structure to translate the columns in your code:
+        ```python
+        # For each target column t in mapping:
+        # col_key = t
+        # For both target column t and prediction column Pred_t:
+        # Invert map: inv_map = {{str(v): k for k, v in mappings[col_key].items()}}
+        # Apply transformation: df[col] = df[col].apply(lambda x: inv_map.get(str(int(float(x))), 'Unknown') if not pd.isna(x) else 'Unknown')
+        ```
+        Apply this logic to translate both ground-truth columns and their corresponding `Pred_` columns in the display table before printing.
      - Configure pandas clean floats printout format (`pd.set_option('display.float_format', lambda x: f'{{x:.4f}}')`) to avoid scientific notation, and configure pandas settings (`pd.set_option('display.max_rows', None)`, `pd.set_option('display.max_columns', None)`, and `pd.set_option('display.width', 1000)`) to print all records cleanly on a single line per row without wrapping columns. Print directly to stdout.
 
 [README.MD RULES]

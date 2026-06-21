@@ -10,18 +10,27 @@ from workflow.state import MLState
 log = get_logger("llm_prediction_validator")
 
 
+class TargetValidationDetail(BaseModel):
+    explanation: str = Field(
+        description="Detailed explanation/critique for this target's predictions and performance metrics."
+    )
+    rating: float = Field(
+        description="A target-specific prediction quality score rating between 0.0 (unusable) and 1.0 (highly accurate/good)."
+    )
+    metrics: Dict[str, float] = Field(
+        description="Dictionary of all accuracy and error metrics shown in the scorecard for this target (e.g. Accuracy Score, Precision Score, Mean Squared Error, R-squared (R2) Score, etc. exactly as shown)."
+    )
+
+
 class PredictionValidationContract(BaseModel):
     is_output_sane: bool = Field(
-        description="True if model predictions are realistic, dynamic, and show variance down rows. False if model collapse, identical stagnant values, or severe domain errors are present."
+        description="True if all model predictions are realistic and sane. False if severe flaws, model collapse, or unacceptable metrics exist."
     )
     validation_critique: str = Field(
-        description="A concise summary critique analyzing why the data rows look correct or pointing out specific prediction anomalies."
+        description="Concise critique summarizing validation issues or confirming complete correctness across all targets."
     )
-    model_rating: float = Field(
-        description="A prediction quality score rating between 0.0 (unusable model) and 1.0 (highly accurate/good model) indicating how well the model predicts targets based on metrics."
-    )
-    model_goodness_explanation: str = Field(
-        description="A detailed explanation analyzing how good the model's predictions are and why it received this rating based on the metrics."
+    target_evaluations: Dict[str, TargetValidationDetail] = Field(
+        description="A dictionary mapping each target column name to its detailed evaluation metrics and explanation."
     )
 
 
@@ -44,8 +53,7 @@ def llm_prediction_validator_run(state: MLState) -> Dict[str, Any]:
         return {
             "model_prediction_accurate": False,
             "runtime_stderr": "[VALIDATION FAILURE]: The holdout evaluation script returned an empty stdout console stream.",
-            "model_performance_rating": 0.0,
-            "model_goodness_explanation": "Aborted: No stdout console stream was returned to analyze model performance.",
+            "model_performance_rating": {},
             "token_count": global_token_count,
             "node_tokens": {**historical_node_tokens, "llm_prediction_validator": 0}
         }
@@ -117,17 +125,24 @@ def llm_prediction_validator_run(state: MLState) -> Dict[str, Any]:
 {validation_log_snippet}
 
 [SEMANTIC GUIDELINES]
-1. Strategy Alignment:
-   - If the Strategy is Classification, only evaluate classification metrics (like Accuracy, Precision, Recall, F1 Score). Do NOT fail the validation if regression metrics (like R-squared or MSE/MAE for secondary regression targets) are negative or poor.
-   - If the Strategy is Regression, only evaluate regression metrics (like R-squared, MSE, MAE). Do NOT fail if classification metrics are poor or missing.
-2. Sane Metrics:
-   - For Classification: Confirm accuracy is reasonable (Accuracy >= 0.55). If accuracy is below 0.55, set is_output_sane to False.
-   - For Regression: Confirm R-squared (R2) is positive (R2 > 0). If R2 is negative, set is_output_sane to False.
-3. Rating and Goodness Evaluation:
-   - Determine if the predictions shown are correct or not based on standard metrics.
-   - Evaluate how good the model is overall.
-   - Provide a rating score between 0.0 (unusable/terrible) and 1.0 (perfectly accurate/highly optimized) and assign it to model_rating.
-   - Write a detailed critique in model_goodness_explanation explaining the rating and the model performance details.
+1. Multi-Target Evaluation Alignment:
+   - Identify the task type (Classification or Regression) for EACH target listed in the scorecard.
+   - For EACH target, evaluate it according to its specific task type:
+     * Classification targets: evaluate classification metrics (Accuracy, Precision, Recall, F1 Score).
+     * Regression targets: evaluate regression metrics (R-squared, MSE, MAE).
+2. Sane Metrics and Sanity Check:
+   - For Classification targets:
+     - For binary classification, confirm Accuracy >= 0.55.
+     - For multi-class classification (> 2 classes), confirm Accuracy is substantially better than random guessing (e.g. Accuracy >= 0.45).
+     - If any classification target fails these thresholds, set is_output_sane to False.
+   - For Regression targets:
+     - Confirm R-squared (R2) is positive (R2 > 0).
+     - If any regression target has a non-positive R2, set is_output_sane to False.
+3. Target-Specific Goodness Evaluation:
+   - For EACH target, populate the details in the `target_evaluations` dict.
+   - Provide a rating score between 0.0 (unusable/terrible) and 1.0 (perfectly accurate/highly optimized) under target's rating.
+   - Extract and populate all metric names and numeric values shown in scorecard under target's metrics (e.g. "Accuracy Score": 0.5185, "R-squared (R2) Score": 0.9107).
+   - Write a detailed target-specific explanation under target's explanation explaining its rating and metrics.
 
 Populate the PredictionValidationContract perfectly."""
 
@@ -149,11 +164,18 @@ Populate the PredictionValidationContract perfectly."""
                 f"Please inspect feature extraction, target mappings, scaling transformations, or model fitting steps."
             )
             
+        target_evals_dict = {}
+        for target_name, detail in contract.target_evaluations.items():
+            target_evals_dict[target_name] = {
+                "explanation": detail.explanation,
+                "rating": detail.rating,
+                "metrics": detail.metrics
+            }
+            
         return {
             "model_prediction_accurate": contract.is_output_sane,
             "runtime_stderr": reremed_log if not contract.is_output_sane else None,
-            "model_performance_rating": contract.model_rating,
-            "model_goodness_explanation": contract.model_goodness_explanation,
+            "model_performance_rating": target_evals_dict,
             "token_count": global_token_count + node_spent,
             "node_tokens": {**historical_node_tokens, "llm_prediction_validator": node_spent}
         }
@@ -163,8 +185,7 @@ Populate the PredictionValidationContract perfectly."""
         return {
             "model_prediction_accurate": False,
             "runtime_stderr": f"Semantic Validation Interface Exception: {str(ai_fault)}",
-            "model_performance_rating": 0.0,
-            "model_goodness_explanation": f"Semantic Validation Interface Exception: {str(ai_fault)}",
+            "model_performance_rating": {},
             "token_count": global_token_count,
             "node_tokens": {**historical_node_tokens, "llm_prediction_validator": 0}
         }

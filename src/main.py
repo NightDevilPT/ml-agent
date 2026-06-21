@@ -59,8 +59,8 @@ def main():
         "is_data_valid": False,
         "consolidation_feedback": None,
         "retry_counters": {"ingestion_loop": 0},
+        "data_process_script_code": None,
         "model_performance_rating": None,
-        "model_goodness_explanation": None,
         "token_count": 0,
         "node_tokens": {}
     }

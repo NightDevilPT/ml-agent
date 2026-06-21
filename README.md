@@ -82,7 +82,7 @@ This subgraph orchestrates data pooling, structural schema stabilization, automa
 
 * **`clone_dataset` (Host Python Node):** Extracts target directory pathways, isolates file names from Windows structural variants, handles string sanitation, provisions a secure workspace folder under `.temp/ml_agent_{foldername}_{uuid}/`, and copies source tables to prevent data loss.
 * **`combine_datasets` (Host Python Node):** Automatically handles multi-file pooling layouts if several related source sheets exist within the targeted directory.
-* **`single_file_cleaner` (LLM-Blueprint Python Node):** Generates a custom, Pydantic-validated dataset transformation recipe via Gemini. Cleans missing cell instances using column medians, parses complex mixed string notations, eliminates commas from currency values to avoid precision issues, breaks down date strings into individual `_year`, `_month`, and `_day` features, and saves category index mappings to `processed-datasets/category_mappings.json` mapping original categories to numbers.
+* **`single_file_cleaner` (LLM-Blueprint Python Node):** Generates and runs a dataset-specific Python preprocessing script in an isolated Docker container context. The generated script executes a 9-stage pipeline including data type checks, datetime extraction, missing value imputation, outlier clipping, and categorical encoding (One-Hot or Label Encoding), saving index maps to `category_mappings.json`.
 * **`dataset_auditor` (Dual-Gate Verification Node):** A critical automated quality guardrail. Gate 1 uses zero-token python scripts to scan arrays for residual strings or missing cells. Gate 2 leverages an AI agent to verify data type correctness. If data issues are found, it loops back to the cleaner up to 2 times before triggering a fallback loop circuit breaker.
 * **`splitter_export` (Host Python Node):** Evaluates the clean matrix data, shuffles the rows, and splits the data into a strict **80/20** partition (`train_dataset.csv` and `test_dataset.csv`). This sets aside 20% of the raw data as a true validation holdout split for final model verification.
 * **`model_strategist` (HITL Selection Ingestion Node):** Analyzes target variable dimensions to distinguish between classification and regression. It ranks compatible algorithms (e.g., `XGBoostRegressor`) and pauses the pipeline, launching a styled Human-in-the-Loop terminal menu where developers explicitly confirm target columns and core model choices.
@@ -93,10 +93,10 @@ This subgraph orchestrates data pooling, structural schema stabilization, automa
 
 This phase handles code generation, container compilation, isolated container runs, and automated output evaluation.
 
-* **`ml_script_architect` (LLM Structured Generator Node):** Takes selected target definitions and model frameworks, prompting an LLM to generate end-to-end training and scoring code. It generates a multi-target execution script that fits separate estimators for each target, computes metrics, and automatically maps numeric codes back to category strings using `category_mappings.json` (including predictions `Pred_<target>`) for readable visual formatting. It injects configuration directives (`pd.set_option('display.float_format', ...)`, `pd.set_option('display.width', 1000)`) to format numbers correctly and prevent wrapping.
+* **`ml_script_architect` (LLM Structured Generator Node):** Takes selected target definitions and model frameworks, prompting an LLM to generate end-to-end training and scoring code. It generates a multi-target execution script that fits separate estimators for each target, stores target training limits, clips regression predictions during evaluation to avoid negative values, computes metrics, and maps predictions safely back to strings via `category_mappings.json` (with KeyError safety checks).
 * **`script_io_writer` (Host Python Node):** Cleans text code fences, commits `train.py` and `main.py` blocks to disk, and structures a unified, multi-stage `Dockerfile` tagged with the unique run workspace ID. It registers a combined execution entrypoint (`CMD ["bash", "-c", "python train.py --mode train && python main.py --mode evaluate"]`).
 * **`docker_sandbox_executor` (Docker Engine Bridge Node):** Spawns a subprocess to build a self-contained container image based on the temporary folder name. It runs the container, saves the model artifact inside the workspace memory, extracts and stores only the performance scorecard block in the state variables (keeping the `state_record.json` extremely compact), and destroys the runtime space via `--rm` switches.
-* **`llm_prediction_validator` (Semantic Audit Gate Node):** Evaluates the terminal scorecard string output. It acts as a semantic checker, verifying that predictions are dynamic, change down rows, and match the target domain properties (e.g., catching model collapse or impossible negative asset values), providing a clean pass/fail status for the pipeline stage.
+* **`llm_prediction_validator` (Semantic Audit Gate Node):** Evaluates the terminal scorecard string output. It acts as a semantic checker, verifying that predictions are dynamic, and parses metrics and ratings per target. It saves target-specific critiques and scores in a structured dictionary under `model_performance_rating` inside the state.
 
 ---
 
@@ -115,54 +115,55 @@ file pathways, and model orchestration boundaries across decoupled pipeline node
 
 from typing import Any, Dict, List, Optional, TypedDict, Union
 
-
 class MLState(TypedDict):
     """Main state object managing data trajectories across decoupled nodes."""
 
     # ----------------------------------------------------------------
     # Host Environment Inputs & Cloned Workspace Directories
     # ----------------------------------------------------------------
-    target_path: str                  # Original raw dataset source path provided by host user interface prompt
-    clone_workspace: str              # Isolated temporary session run folder, e.g., .../.temp/ml_agent_6279f94e
-    all_files: List[str]              # Absolute paths of raw discovered spreadsheets copied into datasets/ staging folder
+    target_path: str                  # Original directory folder provided by host prompt
+    clone_workspace: str              # Isolated workspace path, e.g., .../.temp/ml_agent_6279f94e
+    all_files: List[str]              # Absolute paths of raw files copied into the datasets/ folder
     
     # Clean split dataset file paths generated inside processed-datasets/
-    train_path: str                  # Path to processed-datasets/train_dataset.csv (used for training)
-    test_path: str                   # Path to processed-datasets/test_dataset.csv (used for unseen validation evaluation)
+    train_path: str                  # Path to processed-datasets/train_dataset.csv
+    test_path: str                   # Path to processed-datasets/test_dataset.csv
     
     # ----------------------------------------------------------------
     # Analytics & Selection Phase Metadata
     # ----------------------------------------------------------------
-    target_recommendations: List[Dict[str, Any]]    # Ranked list of prospective targets analyzed by AI planner
-    chosen_target: Optional[Union[str, List[str]]]  # User-selected prediction column targets (supports multi-output arrays)
-    problem_type: Optional[str]       # Automatically inferred operational strategy category: "Classification" or "Regression"
-    algorithm_recommendations: List[Dict[str, Any]] # Ranked model structures scored by data suitability factors
-    chosen_algorithm: Optional[str]   # Explicit model framework selected by user via interactive steering node
+    target_recommendations: List[Dict[str, Any]]
+    chosen_target: Optional[Union[str, List[str]]]  # Selected target feature column(s)
+    problem_type_recommendations: List[Dict[str, Any]]
+    problem_type: Optional[str]       # Inferred task: "Classification" or "Regression"
+    algorithm_recommendations: List[Dict[str, Any]]
+    chosen_algorithm: Optional[str]   # Selected model architecture (e.g., "XGBoostClassifier")
     
     # ----------------------------------------------------------------
     # 📦 ML Code Generation & Infrastructure Extensions
     # ----------------------------------------------------------------
-    generated_code_rationale: Optional[str]   # Mathematical model justification reasoning generated by LLM planner
-    train_script_code: Optional[str]         # Code string containing training execution script code block (train.py)
-    evaluation_script_code: Optional[str]    # Code string containing evaluation inference scorecard code block (main.py)
-    workspace_readme_text: Optional[str]     # Enterprise-grade operational documentation runbook file markdown text
-    script_execution_success: Optional[bool]  # Tracking boolean indicator confirming if container completed code tasks successfully
-    runtime_stdout: Optional[str]             # Captured terminal stdout logging context data containing printable metrics table
-    runtime_stderr: Optional[str]             # Captured terminal standard error context holding fallback traceback data maps
+    generated_code_rationale: Optional[str]   # Architectural explanation generated by LLM code planner
+    data_process_script_code: Optional[str]   # Raw text string containing data cleaning and engineering execution source (data-process.py)
+    train_script_code: Optional[str]         # Raw text string containing training execution source (train.py)
+    evaluation_script_code: Optional[str]    # Raw text string containing 10-row inference layout source (main.py)
+    workspace_readme_text: Optional[str]     # Specialized runbook user documentation markdown string
+    script_execution_success: Optional[bool]  # Execution status tracking indicator flag
+    runtime_stdout: Optional[str]             # Standard terminal logging trace capture
+    runtime_stderr: Optional[str]             # Standard runtime trace crash exception log capture
+    model_performance_rating: Optional[Union[float, Dict[str, Any]]] # Numerical rating scored by LLM predictor quality validator, or target-specific evaluations dict
 
     # ----------------------------------------------------------------
     # Local Self-Healing Loop Feedbacks
     # ----------------------------------------------------------------
-    is_data_valid: bool               # Validation clearance check token populated by the Dataset Auditor Gate Node
-    consolidation_feedback: Optional[str] # Holds correction logs or patch context if syntax/validation errors trip
-    retry_counters: Dict[str, int]    # Loop ceiling registers preventing out-of-bounds execution loops: {"ingestion_loop": 0, "generation_loop": 0}
+    is_data_valid: bool               # Validation flag populated by the Dataset Auditor Node
+    consolidation_feedback: Optional[str] # Holds traceback logs or errors if processing/healing cycles fail
+    retry_counters: Dict[str, int]    # Keeps track of loop iterations: {"ingestion_loop": 0, "generation_loop": 0}
     
     # ----------------------------------------------------------------
     # Token Tracking Operations
     # ----------------------------------------------------------------
-    token_count: int                  # Running continuous cumulative model token usage meter across execution life
-    node_tokens: Dict[str, int]       # Step-by-step breakdown dictionary mapping specific pipeline nodes to token metrics
-
+    token_count: int                  # Global continuous cumulative token burn tracker
+    node_tokens: Dict[str, int]       # Local dictionary mapping specific node keys to token values
 ```
 
 ---
